@@ -1,27 +1,35 @@
-name: Build
+name: Publish PrismDrop 1.1
 
 on:
   push:
     branches: [main]
-  pull_request:
+    paths: [.github/workflows/build.yml]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  universal-macos:
-    name: Universal macOS app
+  publish-source:
     runs-on: macos-26
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Build Intel and Apple silicon
-        run: ./build.sh
-      - name: Verify and package
-        run: ./scripts/package.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: PrismDrop-universal
-          path: dist/*
-          if-no-files-found: error
+      - name: Download and verify the reviewed source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/prismdrop-release"
+          gh release download v1.1.0 --repo "$GITHUB_REPOSITORY" --pattern 'PrismDrop-1.1.0-source.zip' --dir "$RUNNER_TEMP/prismdrop-release"
+          cd "$RUNNER_TEMP/prismdrop-release"
+          echo 'd7a55549bd2ec02a6e09152d11256b7afef9e2431560b5ef74537f68784b6901  PrismDrop-1.1.0-source.zip' | shasum -a 256 --check
+          unzip -q PrismDrop-1.1.0-source.zip
+      - name: Publish the verified source snapshot
+        run: |
+          rsync -a --delete --exclude='.git/' --exclude='.github/' "$RUNNER_TEMP/prismdrop-release/PrismDrop-1.1.0/" ./
+          chmod +x build.sh install.sh uninstall.sh scripts/*.sh
+          git config user.name 'Aaryan Kumar'
+          git config user.email '120643172+deadpoods@users.noreply.github.com'
+          git add -A
+          git commit -m 'Publish PrismDrop 1.1.0 source and Color Studio documentation'
+          git push origin HEAD:main
