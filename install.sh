@@ -2,9 +2,12 @@
 set -euo pipefail
 project_dir=${0:A:h}
 built_app="$project_dir/build/PrismDrop.app"
-if [[ ! -x "$built_app/Contents/MacOS/PrismDrop" || \
+source_changed=false
+for source_file in "$project_dir"/Source/*.swift; do
+  if [[ "$source_file" -nt "$built_app/Contents/MacOS/PrismDrop" ]]; then source_changed=true; fi
+done
+if [[ "$source_changed" == true || ! -x "$built_app/Contents/MacOS/PrismDrop" || \
       ! -f "$built_app/Contents/Resources/PrismDrop.icns" || \
-      "$project_dir/Source/PrismDrop.swift" -nt "$built_app/Contents/MacOS/PrismDrop" || \
       "$project_dir/Info.plist" -nt "$built_app/Contents/Info.plist" || \
       "$project_dir/Assets/PrismDrop.icns" -nt "$built_app/Contents/Resources/PrismDrop.icns" ]]; then
   "$project_dir/build.sh"

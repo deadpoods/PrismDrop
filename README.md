@@ -24,11 +24,11 @@
 
 ## A color picker that stays in your flow
 
-Hold **Option + Shift**. Move across your screen. PrismDrop follows the cursor with a compact glass bubble showing the captured pixel as uppercase **HEX** and **RGB**. Press **C** while holding to copy the HEX, then release either modifier to dismiss it.
+Hold **Option + Shift**. Move across your screen. PrismDrop follows the cursor with a compact glass bubble showing the captured pixel as uppercase **HEX** and **RGB**. Press **C** while holding to copy in your preferred format (HEX by default), then release either modifier to dismiss it and save the picked color.
 
 | Hold | Copy | Release |
 | :--- | :--- | :--- |
-| **⌥ + ⇧** reveals the live readout | **C** copies `#RRGGBB` | Either modifier dismisses it |
+| **⌥ + ⇧** reveals the live readout | **C** copies the selected format | Either modifier dismisses it |
 
 <img src="docs/assets/demo.gif" width="100%" alt="A rendered preview of the cursor moving between blue, lilac, and green swatches while PrismDrop updates its color and shows Copied feedback">
 
@@ -40,15 +40,41 @@ Hold **Option + Shift**. Move across your screen. PrismDrop follows the cursor w
 - **Real Liquid Glass.** On macOS 26 and later, the bubble uses Apple's native SwiftUI `glassEffect`. Earlier supported versions use an ultra-thin material.
 - **A useful reading.** Uppercase sRGB HEX, decimal RGB, a live color swatch, and copy feedback in one compact view.
 - **Native throughout.** SwiftUI, AppKit, Core Graphics, and ScreenCaptureKit. No package dependencies or web runtime.
-- **Quiet when idle.** A menu bar icon provides the last color, alternate modifier pairs, permission status, and Quit. The app has no Dock window.
+- **Quiet when idle.** A menu bar icon provides the last color, alternate modifier pairs, permission status, and Quit. Open Color Studio from the menu for advanced tools; the app stays out of the Dock.
 - **Local by design.** No network requests, analytics, saved screenshots, or audio capture. [Read the privacy notes →](docs/PRIVACY.md)
 - **Motion with restraint.** A short reveal and dismissal respect the system's Reduce Motion setting.
+
+## Color Studio — new in 1.1
+
+Open **PrismDrop → Open Color Studio…** for the companion panel. The cursor bubble keeps its small size and native glass.
+
+| Tool | What it does |
+| :--- | :--- |
+| **History** | Saves a color on picker release or copy, newest first. Re-picking moves it to the top. Keep 100 recents plus favorites, rename entries, delete colors, or clear recents while keeping favorites. Click a swatch to copy HEX. |
+| **Formats** | One-click HEX / HEX-alpha, RGB(A), HSL(A), HSV / HSB, OKLCH, Display P3, SwiftUI, AppKit, CSS variables, and Tailwind values. The compact selector sets your persistent default. |
+| **Palettes** | Drop, import, or paste PNG, JPEG, and HEIC images. Asynchronous weighted OKLab k-means finds up to eight distinct dominant colors. Save and rename palettes; right-click a swatch for export formats or removal. |
+| **Contrast** | Pick foreground/background from the screen, history, selected color, native color wells, or HEX. See live text, WCAG AA/AAA results, swap colors, and copy/apply an accessible foreground suggestion. |
+| **Settings** | Independently enable or disable the eyedropper and each new feature. Saved data and preferences are retained. The same switches are in the menu bar’s **Features** submenu. |
+
+Everything runs locally with native frameworks and no new dependencies. Colors, favorites, and palettes live in `~/Library/Application Support/PrismDrop/library.json`; preferences use `UserDefaults`. **[Usage, color math, and limits →](docs/COLOR_STUDIO.md)**
+
+<img src="docs/assets/studio-history.png" width="650" alt="PrismDrop Color Studio showing named color history, favorites, a compact format selector, and clean three-dot action menus">
+
+<details>
+<summary>Preview contrast checking and image palettes</summary>
+
+<img src="docs/assets/studio-contrast.png" width="650" alt="Live foreground and background preview, WCAG AA and AAA results, and a suggested accessible color">
+<img src="docs/assets/studio-palettes.png" width="650" alt="Native image import and a saved palette extracted from the PrismDrop artwork">
+
+</details>
+
+<sub>Studio previews render the production interface with a temporary sample library; they do not include personal color history.</sub>
 
 ## Get PrismDrop
 
 ### Download
 
-Find the universal app in [GitHub Releases](https://github.com/deadpoods/PrismDrop/releases). Unzip it, move **PrismDrop.app** into `~/Applications`, and open it.
+Download **[PrismDrop 1.1.0](https://github.com/deadpoods/PrismDrop/releases/tag/v1.1.0)** from GitHub Releases. Unzip it, move **PrismDrop.app** into `~/Applications`, and open it.
 
 > The app is ad-hoc signed and **not notarized**. macOS may warn about a downloaded copy. You can inspect and build the source below, or use **System Settings → Privacy & Security → Open Anyway** for this app after reviewing it. [Full installation guide →](docs/INSTALLATION.md)
 
@@ -73,7 +99,7 @@ If PrismDrop is missing from the recording list, click **+**, press **⌘ ⇧ G*
 
 ## Make it yours
 
-Use **Activation hotkey** in the menu to choose **Option + Shift**, **Control + Shift**, or **Control + Option**. The selected pair persists between launches. **Copy Last HEX** remains available after you dismiss the overlay.
+Use **Activation hotkey** in the menu to choose **Option + Shift**, **Control + Shift**, or **Control + Option**. The selected pair persists between launches. **Copy Last Color** remains available after you dismiss the overlay. Choose **Copy Format** from the menu, or use **← / →** while holding the picker shortcut to cycle formats. Those keys also reach the foreground app.
 
 PrismDrop observes input through a listen-only event tap. The copy chord can also reach the foreground app; it does not consume your keys. Some secure input fields or system shortcuts can limit global key observation.
 
@@ -88,6 +114,10 @@ The app has been exercised on macOS 26 with a Retina display, including global a
 | File | Purpose |
 | :--- | :--- |
 | [`Source/PrismDrop.swift`](Source/PrismDrop.swift) | The native app: input, capture, overlay, and menu |
+| [`Source/ColorCore.swift`](Source/ColorCore.swift) | Shared RGBA model, conversions, formats, and contrast math |
+| [`Source/ColorLibrary.swift`](Source/ColorLibrary.swift) · [`Source/StudioStore.swift`](Source/StudioStore.swift) | Persistent library, feature preferences, and shared app state |
+| [`Source/PaletteExtractor.swift`](Source/PaletteExtractor.swift) · [`Source/StudioView.swift`](Source/StudioView.swift) | Image clustering and native companion panel |
+| [`Tests/`](Tests/) · [`scripts/test.sh`](scripts/test.sh) | Math, persistence, extraction, clipboard, and picker regression checks |
 | [`Assets/`](Assets/) | Glass prism droplet artwork and the macOS icon |
 | [`build.sh`](build.sh) · [`install.sh`](install.sh) | Build a universal app and install it locally |
 | [`docs/`](docs/) | Installation, architecture, privacy, and troubleshooting |

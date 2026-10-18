@@ -7,5 +7,7 @@ mkdir -p "$render_dir" "$project_dir/docs/assets"
 sed '/^@main$/,$d' "$project_dir/Source/PrismDrop.swift" > "$render_dir/Documentation.swift"
 cat "$project_dir/tools/RenderDocumentation.swift" >> "$render_dir/Documentation.swift"
 swiftc -parse-as-library -O -framework AppKit -framework SwiftUI -framework ScreenCaptureKit \
+  "$project_dir/Source/ColorCore.swift" "$project_dir/Source/ColorLibrary.swift" \
+  "$project_dir/Source/PaletteExtractor.swift" "$project_dir/Source/StudioStore.swift" "$project_dir/Source/StudioView.swift" \
   "$render_dir/Documentation.swift" -o "$render_dir/RenderDocumentation"
 "$render_dir/RenderDocumentation" "$project_dir"

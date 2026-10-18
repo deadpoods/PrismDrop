@@ -2,7 +2,7 @@
 
 [← Back to PrismDrop](../README.md)
 
-PrismDrop is one native Swift application with no external packages. [`PrismDrop.swift`](../Source/PrismDrop.swift) contains the input listener, sampler, SwiftUI readout, panel positioning, and menu controller.
+PrismDrop is a native Swift application with no external packages. [`PrismDrop.swift`](../Source/PrismDrop.swift) contains the input listener, sampler, SwiftUI readout, panel positioning, and menu controller. `ColorCore.swift` owns the shared RGBA model and math; `ColorLibrary.swift` defines the versioned library; `StudioStore.swift` shares preferences, library state, extraction tasks, and clipboard behavior with `StudioView.swift`. See [Color Studio](COLOR_STUDIO.md) for the new data flow and validation.
 
 ## From a held shortcut to a color
 
@@ -14,7 +14,7 @@ flowchart LR
     D --> E[Capture one-point region]
     E --> F[Select backing pixel and convert to sRGB]
     F --> G[Update glass readout]
-    G --> H[Press C to copy HEX]
+    G --> H[Press C to copy the chosen format]
     C --> I[Release either modifier]
     I --> J[Invalidate capture and dismiss]
 ```

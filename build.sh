@@ -7,7 +7,7 @@ mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
 for architecture in x86_64 arm64; do
   swiftc -parse-as-library -O -target "${architecture}-apple-macosx14.0" \
     -framework AppKit -framework SwiftUI -framework ScreenCaptureKit \
-    "$project_dir/Source/PrismDrop.swift" \
+    "$project_dir"/Source/*.swift \
     -o "$build_dir/PrismDrop-$architecture"
 done
 lipo -create "$build_dir/PrismDrop-x86_64" "$build_dir/PrismDrop-arm64" \

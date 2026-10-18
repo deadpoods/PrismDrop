@@ -4,7 +4,8 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
 files = [
-    ("Source/PrismDrop.swift", "swift"),
+    *[(str(path.relative_to(root)), "swift") for path in sorted((root / "Source").glob("*.swift"))],
+    *[(str(path.relative_to(root)), "swift") for path in sorted((root / "Tests").glob("*.swift"))],
     ("Info.plist", "xml"),
     ("build.sh", "sh"),
     ("install.sh", "sh"),
@@ -13,6 +14,8 @@ files = [
     ("scripts/verify.sh", "sh"),
     ("scripts/package.sh", "sh"),
     ("scripts/render-docs.sh", "sh"),
+    ("scripts/test.sh", "sh"),
+    ("scripts/render-studio.sh", "sh"),
     (".github/workflows/build.yml", "yaml"),
 ]
 parts = [

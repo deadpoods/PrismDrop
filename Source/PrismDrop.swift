@@ -41,20 +41,6 @@ private enum ModifierPair: Int, CaseIterable {
     }
 }
 
-private struct SampledColor: Equatable {
-    let red: UInt8
-    let green: UInt8
-    let blue: UInt8
-
-    var hex: String { String(format: "#%02X%02X%02X", red, green, blue) }
-    var nsColor: NSColor {
-        NSColor(srgbRed: CGFloat(red) / 255,
-                green: CGFloat(green) / 255,
-                blue: CGFloat(blue) / 255,
-                alpha: 1)
-    }
-}
-
 @MainActor
 private final class OverlayModel: ObservableObject {
     @Published var color: SampledColor?
@@ -62,6 +48,7 @@ private final class OverlayModel: ObservableObject {
     @Published var isPresented = false
     @Published var shortcut = "⌥ ⇧"
     @Published var copied = false
+    @Published var copyFormat: CopyFormat = .hex
     @Published var message: String?
     @Published var attachment: OverlayAttachment = .below
     @Published var pointerX: CGFloat = 93
@@ -213,7 +200,7 @@ private struct OverlayView: View {
                         .foregroundStyle(.white.opacity(0.87))
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
-                    Text(model.copied ? "COPIED" : "\(model.shortcut)  C TO COPY")
+                    Text(model.copied ? "COPIED" : "\(model.shortcut) C · \(model.copyFormat.title.uppercased())")
                         .font(.system(size: 7, weight: .semibold, design: .rounded))
                         .tracking(0.5)
                         .foregroundStyle(model.copied ? model.haloColor : .white.opacity(0.74))
@@ -398,6 +385,9 @@ private final class PixelSampler {
 private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let overlay = OverlayPanel()
     private let sampler = PixelSampler()
+    private let studio: StudioStore
+    private var studioWindow: StudioWindow?
+    private var sessionColor: SampledColor?
     private var statusItem: NSStatusItem!
     private var menu: NSMenu!
     private var timer: Timer?
@@ -414,7 +404,20 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
     private var screenAllowed = false
     private var pair = ModifierPair(rawValue: UserDefaults.standard.integer(forKey: "hotkeyPair")) ?? .optionShift
 
+    override init() { studio = StudioStore(); super.init() }
+    init(studio: StudioStore) { self.studio = studio; super.init() }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installApplicationMenu()
+        studio.onPickRequested = { [weak self] in self?.studioWindow?.window.orderOut(nil) }
+        studio.onPickFinished = { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.24) { self?.openStudio(tab: .contrast) }
+        }
+        studio.onFeaturesChanged = { [weak self] in
+            guard let self else { return }
+            if !self.studio.isEnabled(.picker), self.isHolding { self.endSampling() }
+            self.overlay.model.copyFormat = self.studio.activeFormat
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let image = NSImage(systemSymbolName: "eyedropper", accessibilityDescription: "PrismDrop") {
             image.isTemplate = true
@@ -448,9 +451,31 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        studio.cancelExtraction()
+        studio.flush()
         timer?.invalidate()
         if let source = eventTapSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         if let tap = eventTap { CFMachPortInvalidate(tap) }
+    }
+
+    private func installApplicationMenu() {
+        let main = NSMenu()
+        let app = NSMenuItem(); let appMenu = NSMenu(title: "PrismDrop")
+        appMenu.addItem(item("Open Color Studio…", #selector(openStudioAction)))
+        appMenu.addItem(.separator())
+        let quitItem = item("Quit PrismDrop", #selector(quit)); quitItem.keyEquivalent = "q"
+        appMenu.addItem(quitItem); app.submenu = appMenu; main.addItem(app)
+        let edit = NSMenuItem(); let editMenu = NSMenu(title: "Edit")
+        for (title, action, key) in [("Undo", "undo:", "z"), ("Redo", "redo:", "Z"),
+                                     ("Cut", "cut:", "x"), ("Copy", "copy:", "c"),
+                                     ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
+            editMenu.addItem(NSMenuItem(title: title, action: Selector(action), keyEquivalent: key))
+        }
+        edit.submenu = editMenu; main.addItem(edit)
+        let windowItem = NSMenuItem(); let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+        windowItem.submenu = windowMenu; main.addItem(windowItem)
+        NSApp.mainMenu = main
     }
 
     private func installEventTapIfAllowed() {
@@ -486,7 +511,14 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
         } else if type == .keyDown,
                   event.getIntegerValueField(.keyboardEventKeycode) == 8,
                   pair.matches(event.flags), isHolding {
-            copyLastHex()
+            copyLastColor()
+        } else if type == .keyDown, isHolding, studio.isEnabled(.formats), pair.matches(event.flags),
+                  [123, 124].contains(event.getIntegerValueField(.keyboardEventKeycode)) {
+            let choices = CopyFormat.allCases
+            let index = choices.firstIndex(of: studio.defaultFormat) ?? 0
+            let direction = event.getIntegerValueField(.keyboardEventKeycode) == 124 ? 1 : -1
+            studio.defaultFormat = choices[(index + direction + choices.count) % choices.count]
+            overlay.model.copyFormat = studio.activeFormat
         }
     }
 
@@ -513,13 +545,15 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
     }
 
     private func updateHeldState(flags: CGEventFlags) {
-        let shouldHold = pair.matches(flags)
+        let shouldHold = studio.isEnabled(.picker) && pair.matches(flags)
         guard shouldHold != isHolding else { return }
         if shouldHold { beginSampling() } else { endSampling() }
     }
 
     private func beginSampling() {
         isHolding = true
+        sessionColor = nil
+        overlay.model.copyFormat = studio.activeFormat
         generation += 1
         overlay.show(at: NSEvent.mouseLocation, shortcut: pair.shortTitle)
         screenAllowed = CGPreflightScreenCaptureAccess()
@@ -534,6 +568,8 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
         isHolding = false
         generation += 1 // Invalidate any capture that finishes after key release.
         overlay.hide()
+        if let color = sessionColor { studio.acceptPicked(color, finished: true) }
+        sessionColor = nil
     }
 
     private func requestSample() {
@@ -547,6 +583,7 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
                 let sample = try await sampler.sample(at: location)
                 guard isHolding, generation == requestGeneration else { return }
                 lastColor = sample
+                sessionColor = sample
                 lastCaptureError = nil
                 overlay.update(sample, at: NSEvent.mouseLocation)
             } catch {
@@ -561,11 +598,31 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
         }
     }
 
-    private func copyLastHex() {
-        guard let lastColor else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lastColor.hex, forType: .string)
-        overlay.markCopied()
+    private func copyLastColor() {
+        guard let color = isHolding ? sessionColor : lastColor else { return }
+        if studio.copy(color) {
+            studio.acceptPicked(color, finished: false)
+            overlay.markCopied()
+        }
+    }
+
+    private func openStudio(tab: StudioTab? = nil) {
+        if let tab { studio.tab = tab }
+        if studioWindow == nil { studioWindow = StudioWindow(store: studio, shortcut: pair.title) }
+        studioWindow?.show()
+    }
+
+    @objc private func openStudioAction() { openStudio() }
+    func openStudioActionForLaunch() { openStudio() }
+    @objc private func selectFormat(_ sender: NSMenuItem) {
+        guard CopyFormat.allCases.indices.contains(sender.tag) else { return }
+        studio.defaultFormat = CopyFormat.allCases[sender.tag]
+        overlay.model.copyFormat = studio.activeFormat
+    }
+    @objc private func toggleFeature(_ sender: NSMenuItem) {
+        guard StudioFeature.allCases.indices.contains(sender.tag) else { return }
+        let feature = StudioFeature.allCases[sender.tag]
+        studio.setEnabled(feature, !studio.isEnabled(feature))
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) { rebuildMenu() }
@@ -580,6 +637,12 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
         menu.addItem(instruction)
         menu.addItem(.separator())
 
+        menu.addItem(item("Open Color Studio…", #selector(openStudioAction)))
+        if let role = studio.pendingPick {
+            let picking = NSMenuItem(title: "Release the picker to set \(role.rawValue.lowercased())", action: nil, keyEquivalent: "")
+            picking.isEnabled = false; menu.addItem(picking)
+        }
+        menu.addItem(.separator())
         let screenGranted = CGPreflightScreenCaptureAccess()
         let inputGranted = CGPreflightListenEventAccess()
         menu.addItem(item("Screen Recording: \(screenGranted ? "Allowed" : "Needs permission")", #selector(requestScreenAccess)))
@@ -594,9 +657,27 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
         }
         menu.addItem(.separator())
 
-        let copy = item(lastColor.map { "Copy Last HEX  \($0.hex)" } ?? "Copy Last HEX (none yet)", #selector(copyMenuAction))
+        let copy = item(lastColor.map { "Copy Last \(studio.activeFormat.title)  \($0.hex)" } ?? "Copy Last Color (none yet)", #selector(copyMenuAction))
         copy.isEnabled = lastColor != nil
         menu.addItem(copy)
+        if studio.isEnabled(.formats) {
+            let formatMenu = NSMenuItem(title: "Copy Format: \(studio.defaultFormat.title)", action: nil, keyEquivalent: "")
+            let formats = NSMenu()
+            for (index, format) in CopyFormat.allCases.enumerated() {
+                let choice = item(format.title, #selector(selectFormat(_:)))
+                choice.tag = index; choice.state = format == studio.defaultFormat ? .on : .off
+                formats.addItem(choice)
+            }
+            formatMenu.submenu = formats; menu.addItem(formatMenu)
+        }
+        let featuresMenu = NSMenuItem(title: "Features", action: nil, keyEquivalent: "")
+        let features = NSMenu()
+        for (index, feature) in StudioFeature.allCases.enumerated() {
+            let choice = item(feature.title, #selector(toggleFeature(_:)))
+            choice.tag = index; choice.state = studio.isEnabled(feature) ? .on : .off
+            features.addItem(choice)
+        }
+        featuresMenu.submenu = features; menu.addItem(featuresMenu)
         let hotkey = NSMenuItem(title: "Activation hotkey", action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for value in ModifierPair.allCases {
@@ -639,7 +720,7 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
         NSWorkspace.shared.open(url)
     }
 
-    @objc private func copyMenuAction() { copyLastHex() }
+    @objc private func copyMenuAction() { copyLastColor() }
 
     @objc private func selectHotkey(_ sender: NSMenuItem) {
         guard let selection = ModifierPair(rawValue: sender.tag) else { return }
@@ -647,6 +728,7 @@ private final class AppController: NSObject, NSApplicationDelegate, NSMenuDelega
         pair = selection
         UserDefaults.standard.set(selection.rawValue, forKey: "hotkeyPair")
         statusItem.button?.toolTip = "PrismDrop — hold \(pair.title)"
+        studioWindow?.window.contentView = NSHostingView(rootView: StudioView(store: studio, shortcut: pair.title))
     }
 
     @objc private func quit() { NSApplication.shared.terminate(nil) }
@@ -681,6 +763,9 @@ private enum PrismDropMain {
         application.setActivationPolicy(.accessory)
         let delegate = AppController()
         application.delegate = delegate
+        if CommandLine.arguments.contains("--studio") {
+            DispatchQueue.main.async { delegate.openStudioActionForLaunch() }
+        }
         application.run()
     }
 }
